@@ -40,6 +40,7 @@ int main(){
 
   Q *q0 = create_queue();
   Q *q1 = create_queue();
+  destroy_queue(q1);
   // enqueue_byte(q0, 0);
   // enqueue_byte(q0, 1);
   // Q *q1 = create_queue();
@@ -83,6 +84,15 @@ void on_illegal_operation(){
   exit(2);
 }
 
+// Size of buf must be >= header->size
+void my_memcpy(Header* header, unsigned char* buf){
+  for(int i=0; i<header->size; i++){
+    int cur_index = sizeof(Header) + 
+                    (header->head + i) % header->capacity;
+    buf[i] = ((unsigned char*)header)[cur_index];
+  }
+}
+
 Header* my_malloc(int size){
   // Best fit strategy
   Header* header = NULL;
@@ -108,11 +118,12 @@ Header* my_malloc(int size){
   // if header->size != -1, re-organize the memory.
   if(header->size != -1){
     unsigned char buf[header->size];
-    for(int i=0; i<header->size; i++){
-      int cur_index = sizeof(Header) + 
-                      (header->head + i) % header->capacity;
-      buf[i] = ((unsigned char*)header)[cur_index];
-    }
+    my_memcpy(header, buf);
+    // for(int i=0; i<header->size; i++){
+    //   int cur_index = sizeof(Header) + 
+    //                   (header->head + i) % header->capacity;
+    //   buf[i] = ((unsigned char*)header)[cur_index];
+    // }
     for(int i=0; i<header->size; i++){
       ((unsigned char*)header)[sizeof(Header) + i] = buf[i];
     }
@@ -130,6 +141,34 @@ Header* my_malloc(int size){
 
 void my_free(Header* header){
   // TODO: implement me
+  Header* prev_header = NULL;
+  for(int i=Q_MAX*sizeof(Q); i<DATA_MAX;){
+    Header* tmp = (Header*)(data + i);
+    if(tmp == header){
+      break;
+    }
+    i += tmp->capacity + sizeof(Header);
+    prev_header = tmp;
+  }
+
+  if(prev_header == NULL){
+    prev_header->size = -1;
+  }else{
+    unsigned char buf[prev_header->size];
+    my_memcpy(prev_header, buf);
+    for(int i=0; i<prev_header->size; i++){
+      ((unsigned char*)prev_header)[sizeof(Header) + i] = buf[i];
+    }
+    prev_header->head = 0;
+    prev_header->capacity = prev_header->capacity + sizeof(Header) + 
+                            header->capacity;
+    
+    // The following is done so that the freed header is seen in the memory
+    header->size = -1;
+    header->capacity = 0;
+    header->head = 0;
+  }
+
   return;
 }
 
@@ -172,14 +211,14 @@ Q *create_queue(){
 }
 
 void destroy_queue(Q *q){
-  Header* header = data[q->start];
+  Header* header = (Header*)(data + q->start);
   my_free(header);
   q->start = -1;
   return;
 }
 
 void enqueue_byte(Q *q, unsigned char b){
-  Header* header = (Header*)data[q->start];
+  Header* header = (Header*)(data + q->start);
   if(header->capacity >= header->size){
     Header* new_header = my_malloc(header->capacity * 2);
     for(int i=0; i<header->size; i++){
@@ -200,7 +239,7 @@ void enqueue_byte(Q *q, unsigned char b){
 }
 
 unsigned char dequeue_byte(Q *q){
-  Header* header = (Header*)data[q->start];
+  Header* header = (Header*)(data + q->start);
   if(header->size == 0){
     on_illegal_operation();
   }
