@@ -4,8 +4,8 @@
 
 #define DATA_MAX 2048
 #define Q_MAX 64
-#define INIT_SIZE 10
-#define GAP_SIZE 2
+#define INIT_SIZE 12
+#define GAP_SIZE 4
 
 typedef struct {
   int capacity;
@@ -22,7 +22,7 @@ unsigned char data[2048];
 bool is_inited = false;
 
 // Requirements:
-// Worst-case is more imporatant
+// Worst-case is more important
 // Average: 15 queues with 80 bytes ~ 1200 bytes
 // Max: 64 queues at once ~ 32 bytes per queue
 
@@ -39,6 +39,7 @@ int main(){
   printf("charptr size: %d\n", sizeof(char*));
 
   Q *q0 = create_queue();
+  Q *q1 = create_queue();
   // enqueue_byte(q0, 0);
   // enqueue_byte(q0, 1);
   // Q *q1 = create_queue();
@@ -88,11 +89,12 @@ Header* my_malloc(int size){
   int last_dif = 999999;
   for(int i=Q_MAX*sizeof(Q); i<DATA_MAX;){
     Header* tmp = (Header*)&data[i];
-    if(tmp->size == -1 && tmp->capacity >= size){
+    if(tmp->size == -1 && tmp->capacity >= size && 
+       tmp->capacity < last_dif){
       last_dif = tmp->capacity - tmp->size;
       header = tmp;
-    }else if(tmp->capacity - tmp->size < last_dif && 
-             tmp->capacity - tmp->size >= GAP_SIZE + sizeof(Header) + size){
+    }else if(tmp->capacity - tmp->size >= GAP_SIZE + sizeof(Header) + size &&
+             tmp->capacity - tmp->size < last_dif){
       last_dif = tmp->capacity - tmp->size;
       header = tmp;
     }
@@ -107,7 +109,8 @@ Header* my_malloc(int size){
   if(header->size != -1){
     unsigned char buf[header->size];
     for(int i=0; i<header->size; i++){
-      int cur_index = (sizeof(Header) + i) % header->capacity;
+      int cur_index = sizeof(Header) + 
+                      (header->head + i) % header->capacity;
       buf[i] = ((unsigned char*)header)[cur_index];
     }
     for(int i=0; i<header->size; i++){
@@ -125,6 +128,11 @@ Header* my_malloc(int size){
   return header;
 }
 
+void my_free(Header* header){
+  // TODO: implement me
+  return;
+}
+
 Q *create_queue(){
   if(!is_inited){
     int cur=0;
@@ -135,11 +143,11 @@ Q *create_queue(){
     ((Header*)&data[cur])->capacity = DATA_MAX - Q_MAX * sizeof(Q);
     ((Header*)&data[cur])->size = -1;
     ((Header*)&data[cur])->head = 0;
-    printf("init capacity: %d\n", ((Header*)&data[cur])->capacity);
     cur += sizeof(Header);
     for(; cur<DATA_MAX; cur++){
       data[cur] = 0;
     }
+    is_inited = true;
   }
 
   Q* res = NULL;
@@ -155,6 +163,7 @@ Q *create_queue(){
   }
 
   Header* header = my_malloc(INIT_SIZE);
+  printf("capacity: %d\n", header->capacity);
   res->start = (unsigned char*)header - data;
   header->head = 0;
   header->size = 0;
@@ -163,13 +172,45 @@ Q *create_queue(){
 }
 
 void destroy_queue(Q *q){
+  Header* header = data[q->start];
+  my_free(header);
+  q->start = -1;
   return;
 }
 
 void enqueue_byte(Q *q, unsigned char b){
+  Header* header = (Header*)data[q->start];
+  if(header->capacity >= header->size){
+    Header* new_header = my_malloc(header->capacity * 2);
+    for(int i=0; i<header->size; i++){
+      int cur_index = q->start + sizeof(Header) + 
+                      (header->head + i) % header->capacity;
+      ((unsigned char*)new_header)[sizeof(Header) + i] = data[cur_index];
+    }
+    my_free(header);
+    header = new_header;
+    q->start = (unsigned char*)header - data;
+  }
+
+  int index = q->start + sizeof(Header) + 
+              ((header->head + header->size) % header->capacity);
+  ((unsigned char*)header)[index] = b;
+  header->size++;
   return;
 }
 
 unsigned char dequeue_byte(Q *q){
-  return 0;
+  Header* header = (Header*)data[q->start];
+  if(header->size == 0){
+    on_illegal_operation();
+  }
+  if(header->size < 0){
+    fprintf(stderr, "ERROR: header has negative size!");
+    on_illegal_operation();
+  }
+
+  unsigned char res = ((unsigned char*)header)[sizeof(Header) + header->head];
+  header->head = (header->head + 1) % header->capacity;
+
+  return res;
 }
