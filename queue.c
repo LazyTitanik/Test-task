@@ -6,9 +6,7 @@
 #define DATA_MAX 2048
 #define Q_MAX 64
 #define INIT_SIZE 12
-#define GAP_SIZE 0
-
-// TODO: add allocating the biggest chunk option
+#define GAP_SIZE 4
 
 // With INIT_SIZE == 12 the max size of a single queue is 1536, as the next 
 // reallocation takes 1536*2 = 3072 > 2048-Q_MAX*sizeof(Q).
@@ -140,8 +138,8 @@ int main(){
     }
     printf("\n");
   }
-
   header = NULL;
+
   for(int i=Q_MAX*sizeof(Q); i<DATA_MAX;){
     Header* tmp = (Header*)(data + i);
     printf("cur chunk: cap %d, size %d, head %d, dif %d\n", tmp->capacity, tmp->size, tmp->head, tmp->capacity - 80);
@@ -152,20 +150,13 @@ int main(){
 }
 
 void on_out_of_memory(){
-
   Header* header = NULL;
   for(int i=Q_MAX*sizeof(Q); i<DATA_MAX;){
     Header* tmp = (Header*)(data + i);
     printf("cur chunk: cap %d, size %d, head %d, dif %d\n", tmp->capacity, tmp->size, tmp->head, tmp->capacity - 80);
     i += tmp->capacity + sizeof(Header);
   }
-  
-  // for(int i=0; i<DATA_MAX; i++){
-  //   if(i%16 == 0){
-  //     printf("\n");
-  //   }
-  //   printf("%02x ", data[i]);
-  // }
+
   fprintf(stderr, "ERROR: Out of memory!\n");
   exit(1);
 }
@@ -185,24 +176,8 @@ void my_memcpy(Header* header, unsigned char* buf){
 }
 
 Header* my_malloc(int size){
-  // 1st find suitable chunk using best fit strategy
+  // 1st find suitable chunk using first fit strategy
   Header* header = NULL;
-  // int last_dif = 999999;
-  // for(int i=Q_MAX*sizeof(Q); i<DATA_MAX;){
-  //   Header* tmp = (Header*)(data + i);
-  //   if(tmp->size == -1 && tmp->capacity >= size && 
-  //      tmp->capacity < last_dif){
-  //     last_dif = tmp->capacity - tmp->size;
-  //     header = tmp;
-  //   }else if(tmp->capacity - tmp->size >= GAP_SIZE + sizeof(Header) + size &&
-  //            tmp->capacity - tmp->size < last_dif){
-  //     last_dif = tmp->capacity - tmp->size;
-  //     header = tmp;
-  //   }
-  //   i += tmp->capacity + sizeof(Header);
-  // }
-
-  // using first fit strategy
   for(int i=Q_MAX*sizeof(Q); i<DATA_MAX;){
     Header* tmp = (Header*)(data + i);
     if(tmp->size == -1 && tmp->capacity >= size){
@@ -216,18 +191,13 @@ Header* my_malloc(int size){
   }
 
   if(header == NULL){
-    return NULL; //on_out_of_memory();
+    return NULL;
   }
 
   // 2nd if header->size != -1, re-organize the chunk (the queue).
   if(header->size != -1){
     unsigned char buf[header->size];
     my_memcpy(header, buf);
-    // for(int i=0; i<header->size; i++){
-    //   int cur_index = sizeof(Header) + 
-    //                   (header->head + i) % header->capacity;
-    //   buf[i] = ((unsigned char*)header)[cur_index];
-    // }
     for(int i=0; i<header->size; i++){
       ((unsigned char*)header)[sizeof(Header) + i] = buf[i];
     }
@@ -253,7 +223,6 @@ Header* my_malloc(int size){
           ((unsigned char*)prev_chunk + sizeof(Header) + prev_chunk->capacity);
   }
   
-  // int free_space = last_capacity - prev_chunk->capacity - sizeof(Header);
   if(free_space > size + sizeof(Header)){
     cur_chunk->capacity = size;
 
@@ -267,6 +236,30 @@ Header* my_malloc(int size){
   }
   
   return cur_chunk;
+}
+
+Header* get_free_chunk(int min_size){
+  Header* header = NULL;
+  int found_size = 0;
+  for(int i=Q_MAX*sizeof(Q); i<DATA_MAX;){
+    Header* tmp = (Header*)(data + i);
+    if(tmp->size == -1 && tmp->capacity >= min_size){
+      header = tmp;
+      found_size = tmp->capacity;
+      break;
+    }else if(tmp->capacity - tmp->size >= GAP_SIZE + sizeof(Header) + min_size){
+      header = tmp;
+      found_size = tmp->capacity - tmp->size - GAP_SIZE - sizeof(Header);
+      break;
+    }
+    i += tmp->capacity + sizeof(Header);
+  }
+
+  if(header == NULL){
+    return NULL; //on_out_of_memory();
+  }
+
+  return my_malloc(header->capacity);
 }
 
 // Deactivates the given chunk and merges it with 2 neigbours (if unused)
@@ -349,7 +342,6 @@ Q *create_queue(){
   if(header == NULL){
     on_out_of_memory();
   }
-  // printf("capacity: %d\n", header->capacity);
   res->start = (unsigned char*)header - data;
   header->head = 0;
   header->size = 0;
@@ -384,8 +376,13 @@ void enqueue_byte(Q *q, unsigned char b){
       my_memcpy(header, buf);
       my_free(header);
       new_header = my_malloc(new_cap);
+
       if(new_header == NULL){
-        on_out_of_memory();
+        // the last resort: find any suitable free space and occupy it
+        new_header = get_free_chunk(sizeof(buf)+1);
+        if(new_header == NULL){
+          on_out_of_memory();
+        }
       }
       for(int i=0; i<sizeof(buf); i++){
         ((unsigned char*)new_header)[sizeof(Header) + i] = buf[i];
