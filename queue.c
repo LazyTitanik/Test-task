@@ -1,171 +1,15 @@
 #include <stdio.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <stdint.h>
 
-#define DATA_MAX 2048
-#define Q_MAX 64
-#define INIT_SIZE 12
-#define GAP_SIZE 4
+// Note: delete this if you want your implementations of 
+// on_out_of_memeory() and on_illegal_operation()
+#include "error.h" 
 
-// With INIT_SIZE == 12 the max size of a single queue is 1536, as the next 
-// reallocation takes 1536*2 = 3072 > 2048-Q_MAX*sizeof(Q).
-// Since the main use case is 15 queues with average of 80 bytes, it 
-// has to be enough
-
-typedef struct {
-  int16_t capacity;
-  int16_t size;
-  int16_t head;
-} Header;
-
-typedef struct{
-  int16_t start;
-} Q;
+#include "queue.h"
 
 unsigned char data[DATA_MAX];
-
 bool is_inited = false;
 
-// Requirements:
-// Worst-case is more important
-// Average: 15 queues with 80 bytes ~ 1200 bytes
-// Max: 64 queues at once ~ 32 bytes per queue
-
-Q *create_queue(); // Creates a FIFO byte queue, returning a handle to it.
-void destroy_queue(Q *q); // Destroy an earlier created byte queue.
-void enqueue_byte(Q *q, unsigned char b); // Adds a new byte to a queue.
-unsigned char dequeue_byte(Q *q); // Pops the next byte off the FIFO queue.
-void on_out_of_memory(); 
-void on_illegal_operation();
-
-int main(){
-  printf("Q size: %d\n", sizeof(Q));
-  printf("Header size: %d\n", sizeof(Header));
-  printf("int size: %d\n", sizeof(int));
-  printf("charptr size: %d\n", sizeof(char*));
-
-  // Test 1: memory fragmentation
-  is_inited = false;
-  Q* queues[Q_MAX];
-  for(int i=0; i<Q_MAX; i++){
-    queues[i] = create_queue();
-  }
-
-  for(int i=0; i<Q_MAX; i+=2){
-    destroy_queue(queues[i]);
-    queues[i] = NULL;
-  }
-
-  for(int i=1; i<Q_MAX; i+=2){
-    destroy_queue(queues[i]);
-    queues[i] = NULL;
-  }
-
-  int elem_num = 1000;
-  Q* final = create_queue();
-  for(int i=0; i<elem_num; i++){
-    enqueue_byte(final, i%250);
-  }
-
-  for(int i=0; i<elem_num; i++){
-    printf("%d ", dequeue_byte(final));
-    if(i%10 == 0){
-      printf("\n");
-    }
-  }
-
-  // Test 2: basic queues
-  is_inited = false;
-  Q *q0 = create_queue();
-  enqueue_byte(q0, 0);
-  enqueue_byte(q0, 1);
-  Q *q1 = create_queue();
-  enqueue_byte(q1, 3);
-  enqueue_byte(q0, 2);
-  enqueue_byte(q1, 4);
-  printf("%d", dequeue_byte(q0));
-  printf("%d\n", dequeue_byte(q0));
-  enqueue_byte(q0, 5);
-  enqueue_byte(q1, 6);
-  printf("%d", dequeue_byte(q0));
-  printf("%d\n", dequeue_byte(q0));
-  destroy_queue(q0);
-  printf("%d", dequeue_byte(q1));
-  printf("%d", dequeue_byte(q1));
-  printf("%d\n", dequeue_byte(q1));
-  destroy_queue(q1);
-
-  // Output should be
-  // 0 1
-  // 2 5
-  // 3 4 6
-
-  // Test 3: 15 queues with 80 bytes
-  is_inited = false;
-  int q_size = 15;
-  Q* qs[q_size];
-  for(int j=0; j<q_size; j++){
-    qs[j] = create_queue();   
-  }
-  for(int i=0; i<80; i++){
-    for(int j=0; j<q_size; j++){
-      enqueue_byte(qs[j], i);
-    }
-  }
-  for(int i=0; i<80; i++){
-    for(int j=0; j<q_size; j++){
-      printf("%d ", dequeue_byte(qs[j]));
-    }
-    printf("\n");
-  }
-
-  Header* header = NULL;
-  for(int i=Q_MAX*sizeof(Q); i<DATA_MAX;){
-    Header* tmp = (Header*)(data + i);
-    printf("cur chunk: cap %d, size %d, head %d, dif %d\n", tmp->capacity, tmp->size, tmp->head, tmp->capacity - 80);
-    i += tmp->capacity + sizeof(Header);
-  }
-
-  for(int i=0; i<80; i++){
-    for(int j=0; j<q_size; j++){
-      enqueue_byte(qs[j], i);
-    }
-  }
-  for(int i=0; i<80; i++){
-    for(int j=0; j<q_size; j++){
-      printf("%d ", dequeue_byte(qs[j]));
-    }
-    printf("\n");
-  }
-  header = NULL;
-
-  for(int i=Q_MAX*sizeof(Q); i<DATA_MAX;){
-    Header* tmp = (Header*)(data + i);
-    printf("cur chunk: cap %d, size %d, head %d, dif %d\n", tmp->capacity, tmp->size, tmp->head, tmp->capacity - 80);
-    i += tmp->capacity + sizeof(Header);
-  }
-
-  return 0;
-}
-
-void on_out_of_memory(){
-  Header* header = NULL;
-  for(int i=Q_MAX*sizeof(Q); i<DATA_MAX;){
-    Header* tmp = (Header*)(data + i);
-    printf("cur chunk: cap %d, size %d, head %d, dif %d\n", tmp->capacity, tmp->size, tmp->head, tmp->capacity - 80);
-    i += tmp->capacity + sizeof(Header);
-  }
-
-  fprintf(stderr, "ERROR: Out of memory!\n");
-  exit(1);
-}
-
-void on_illegal_operation(){
-  fprintf(stderr, "ERROR: Illegal operation!\n");
-  exit(2);
-}
-
+// Copies the data of a queue (i.e. a header) to the buffer
 // Size of buf must be >= header->size
 void my_memcpy(Header* header, unsigned char* buf){
   for(int i=0; i<header->size; i++){
@@ -175,6 +19,7 @@ void my_memcpy(Header* header, unsigned char* buf){
   }
 }
 
+// Returns pointer to a header with given capacity
 Header* my_malloc(int size){
   // 1st find suitable chunk using first fit strategy
   Header* header = NULL;
@@ -238,6 +83,7 @@ Header* my_malloc(int size){
   return cur_chunk;
 }
 
+// Returns pointer to a header with capacity at least min_size
 Header* get_free_chunk(int min_size){
   Header* header = NULL;
   int found_size = 0;
@@ -256,10 +102,10 @@ Header* get_free_chunk(int min_size){
   }
 
   if(header == NULL){
-    return NULL; //on_out_of_memory();
+    return NULL;
   }
 
-  return my_malloc(header->capacity);
+  return my_malloc(found_size);
 }
 
 // Deactivates the given chunk and merges it with 2 neigbours (if unused)
