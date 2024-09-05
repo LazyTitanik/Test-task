@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-// Note: delete this if you want your implementations of 
+// Note: delete this if you want to use your implementations of 
 // on_out_of_memeory() and on_illegal_operation()
 #include "error.h" 
 

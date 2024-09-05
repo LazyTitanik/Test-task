@@ -1,3 +1,7 @@
+// Note: this file only exists to isolate functions on_out_of_memory()
+// and on_illegal_operation()
+// The implementation of the queues is in queue.h and queue.c
+
 #ifndef MY_ERROR_H
 #define MY_ERROR_H
 
