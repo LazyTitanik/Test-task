@@ -6,3 +6,5 @@ The memory is organized in the following way:
    - head of the queue.
 
 A queue is implemented as a circular queue. I found it the most efficient way of storing the data, as the queue is FIFO.
+
+Implemented in C programing language, because the text of the task was written in it.
