@@ -7,6 +7,11 @@
 #define INIT_SIZE 12
 #define GAP_SIZE 4
 
+// With INIT_SIZE == 12 the max size of a single queue is 1536, as the next 
+// reallocation takes 1536*2 = 3072 > 2048-Q_MAX*sizeof(Q).
+// Since the main use case is 15 queues with average of 80 bytes, it 
+// has to be enough
+
 typedef struct {
   int capacity;
   int size;
@@ -38,9 +43,36 @@ int main(){
   printf("int size: %d\n", sizeof(int));
   printf("charptr size: %d\n", sizeof(char*));
 
-  Q *q0 = create_queue();
-  Q *q1 = create_queue();
-  destroy_queue(q1);
+  Q* queues[Q_MAX];
+  for(int i=0; i<Q_MAX; i++){
+    queues[i] = create_queue();
+  }
+
+  for(int i=0; i<Q_MAX; i+=2){
+    destroy_queue(queues[i]);
+    queues[i] = NULL;
+  }
+
+  for(int i=1; i<Q_MAX; i+=2){
+    destroy_queue(queues[i]);
+    queues[i] = NULL;
+  }
+
+  int elem_num = 1600;
+  Q* final = create_queue();
+  for(int i=0; i<elem_num; i++){
+    enqueue_byte(final, i%250);
+  }
+
+
+  for(int i=0; i<elem_num; i++){
+    printf("%d ", dequeue_byte(final));
+    if(i%10 == 0){
+      printf("\n");
+    }
+  }
+
+  // Q *q0 = create_queue();
   // enqueue_byte(q0, 0);
   // enqueue_byte(q0, 1);
   // Q *q1 = create_queue();
@@ -64,17 +96,17 @@ int main(){
   // 2 5
   // 3 4 6
 
+  return 0;
+}
+
+void on_out_of_memory(){
+  
   for(int i=0; i<DATA_MAX; i++){
     if(i%16 == 0){
       printf("\n");
     }
     printf("%02x ", data[i]);
   }
-
-  return 0;
-}
-
-void on_out_of_memory(){
   fprintf(stderr, "ERROR: Out of memory!\n");
   exit(1);
 }
@@ -112,7 +144,7 @@ Header* my_malloc(int size){
   }
 
   if(header == NULL){
-    on_out_of_memory();
+    return NULL; //on_out_of_memory();
   }
 
   // 2nd if header->size != -1, re-organize the chunk (the queue).
@@ -242,7 +274,10 @@ Q *create_queue(){
   }
 
   Header* header = my_malloc(INIT_SIZE);
-  printf("capacity: %d\n", header->capacity);
+  if(header == NULL){
+    on_out_of_memory();
+  }
+  // printf("capacity: %d\n", header->capacity);
   res->start = (unsigned char*)header - data;
   header->head = 0;
   header->size = 0;
@@ -259,19 +294,45 @@ void destroy_queue(Q *q){
 
 void enqueue_byte(Q *q, unsigned char b){
   Header* header = (Header*)(data + q->start);
-  if(header->capacity >= header->size){
+
+  // resolve memory sufficiency
+  if(header->capacity <= header->size){
     Header* new_header = my_malloc(header->capacity * 2);
-    for(int i=0; i<header->size; i++){
-      int cur_index = q->start + sizeof(Header) + 
-                      (header->head + i) % header->capacity;
-      ((unsigned char*)new_header)[sizeof(Header) + i] = data[cur_index];
+
+    // if not enough memory is found, deallocate the current 
+    // queue and try one more time
+    if(new_header == NULL){
+      unsigned char buf[header->size];
+      my_memcpy(header, buf);
+      my_free(header);
+      new_header = my_malloc(sizeof(buf) * 2);
+      if(new_header == NULL){
+        on_out_of_memory();
+      }
+      for(int i=0; i<sizeof(buf); i++){
+        ((unsigned char*)new_header)[sizeof(Header) + i] = buf[i];
+      }
+      new_header->size = sizeof(buf);
+      new_header->head = 0;
     }
-    my_free(header);
+
+    // if enough memory is found, copy data and deallocate memory
+    else{
+      for(int i=0; i<header->size; i++){
+        int cur_index = q->start + sizeof(Header) + 
+                        (header->head + i) % header->capacity;
+        ((unsigned char*)new_header)[sizeof(Header) + i] = data[cur_index];
+      }
+      new_header->size = header->size;
+      new_header->head = 0;
+      my_free(header);
+    }
+
     header = new_header;
     q->start = (unsigned char*)header - data;
   }
 
-  int index = q->start + sizeof(Header) + 
+  int index = sizeof(Header) + 
               ((header->head + header->size) % header->capacity);
   ((unsigned char*)header)[index] = b;
   header->size++;
@@ -290,6 +351,7 @@ unsigned char dequeue_byte(Q *q){
 
   unsigned char res = ((unsigned char*)header)[sizeof(Header) + header->head];
   header->head = (header->head + 1) % header->capacity;
+  header->size--;
 
   return res;
 }
